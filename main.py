@@ -17,17 +17,16 @@ PORT = int(os.environ.get("PORT", 10000))
 
 intents = discord.Intents.default()
 intents.message_content = False
-
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # YouTube API client
 youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 
-# Regex to find base links in descriptions
-BASE_LINK_REGEX = r"https:\/\/link\.clashofclans\.com\/[^\s]+"
+# Regex to only match valid base links (ignore army links)
+BASE_LINK_REGEX = r"https:\/\/link\.clashofclans\.com\/en\?action=OpenLayout&id=[A-Za-z0-9:%]+"
 
 # ======================
-# SIMPLE WEB SERVER (for Render free)
+# WEB SERVER (Render free)
 # ======================
 app = Flask('')
 
@@ -52,6 +51,7 @@ async def extract_text_from_image(image_path):
             form.add_field('apikey', OCR_API_KEY)
             form.add_field('file', image_file, filename=image_path)
             form.add_field('language', 'eng')
+            form.add_field('ocrengine', '2')  # better OCR engine
 
             async with session.post('https://api.ocr.space/parse/image', data=form) as resp:
                 result = await resp.json()
@@ -62,7 +62,7 @@ async def extract_text_from_image(image_path):
 # ======================
 # SLASH COMMAND
 # ======================
-@bot.tree.command(name="baselink", description="Upload a base screenshot to find the base link")
+@bot.tree.command(name="baselink", description="Upload a base screenshot to find multiple base links")
 async def baselink(interaction: discord.Interaction, screenshot: discord.Attachment):
     await interaction.response.defer()
 
@@ -72,24 +72,27 @@ async def baselink(interaction: discord.Interaction, screenshot: discord.Attachm
 
     # OCR - extract text from image using OCR.space
     text = await extract_text_from_image(file_path)
-    if not text.strip():
-        await interaction.followup.send("⚠️ Could not read any text from the screenshot. Try a clearer image.")
-        return
 
-    # Use extracted text to search YouTube
+    # If OCR fails, fallback search
+    if not text.strip():
+        text = "TH17 Legend League Base"
+
+    # YouTube search
     try:
         search_response = youtube.search().list(
             q=text,
             part="id,snippet",
-            maxResults=5
+            maxResults=10
         ).execute()
 
-        base_link = None
-
-        # Check video descriptions for base link
+        results = []
         for item in search_response.get("items", []):
             if item["id"]["kind"] == "youtube#video":
                 video_id = item["id"]["videoId"]
+                video_title = item["snippet"]["title"]
+                video_url = f"https://www.youtube.com/watch?v={video_id}"
+
+                # Get video description
                 video_response = youtube.videos().list(
                     id=video_id,
                     part="snippet"
@@ -100,12 +103,16 @@ async def baselink(interaction: discord.Interaction, screenshot: discord.Attachm
                     match = re.search(BASE_LINK_REGEX, description)
                     if match:
                         base_link = match.group(0)
-                        break
+                        results.append(f"**{len(results)+1}. [Base link]({base_link}) from [{video_title}]({video_url})**")
+                
+                # Stop after 5 results
+                if len(results) == 5:
+                    break
 
-        if base_link:
-            await interaction.followup.send(f"✅ Found base link: {base_link}")
+        if results:
+            await interaction.followup.send("\n\n".join(results))
         else:
-            await interaction.followup.send("❌ No base link found in top YouTube results. Try another image.")
+            await interaction.followup.send("❌ No valid base link found in top YouTube results. Try another image.")
     except Exception as e:
         await interaction.followup.send(f"⚠️ Error searching YouTube: {e}")
 
