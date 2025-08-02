@@ -1,6 +1,4 @@
 discord.py
-pytesseract
-Pillow
-google-api-python-client
 aiohttp
+google-api-python-client
 flask
