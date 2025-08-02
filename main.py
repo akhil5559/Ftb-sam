@@ -1,7 +1,5 @@
 import discord
 from discord.ext import commands
-import pytesseract
-from PIL import Image
 import aiohttp
 import os
 import re
@@ -14,6 +12,7 @@ import threading
 # ======================
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+OCR_API_KEY = os.getenv("OCR_API_KEY")
 PORT = int(os.environ.get("PORT", 10000))
 
 intents = discord.Intents.default()
@@ -28,7 +27,7 @@ youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 BASE_LINK_REGEX = r"https:\/\/link\.clashofclans\.com\/[^\s]+"
 
 # ======================
-# SIMPLE WEB SERVER
+# SIMPLE WEB SERVER (for Render free)
 # ======================
 app = Flask('')
 
@@ -44,6 +43,23 @@ def keep_alive():
     t.start()
 
 # ======================
+# OCR FUNCTION (OCR.space)
+# ======================
+async def extract_text_from_image(image_path):
+    async with aiohttp.ClientSession() as session:
+        with open(image_path, 'rb') as image_file:
+            form = aiohttp.FormData()
+            form.add_field('apikey', OCR_API_KEY)
+            form.add_field('file', image_file, filename=image_path)
+            form.add_field('language', 'eng')
+
+            async with session.post('https://api.ocr.space/parse/image', data=form) as resp:
+                result = await resp.json()
+                if result.get("IsErroredOnProcessing", True):
+                    return ""
+                return result["ParsedResults"][0]["ParsedText"]
+
+# ======================
 # SLASH COMMAND
 # ======================
 @bot.tree.command(name="baselink", description="Upload a base screenshot to find the base link")
@@ -54,13 +70,8 @@ async def baselink(interaction: discord.Interaction, screenshot: discord.Attachm
     file_path = f"/tmp/{screenshot.filename}"
     await screenshot.save(file_path)
 
-    # OCR - extract text from image
-    try:
-        text = pytesseract.image_to_string(Image.open(file_path))
-    except Exception as e:
-        await interaction.followup.send(f"⚠️ Error reading image: {e}")
-        return
-
+    # OCR - extract text from image using OCR.space
+    text = await extract_text_from_image(file_path)
     if not text.strip():
         await interaction.followup.send("⚠️ Could not read any text from the screenshot. Try a clearer image.")
         return
@@ -98,7 +109,6 @@ async def baselink(interaction: discord.Interaction, screenshot: discord.Attachm
     except Exception as e:
         await interaction.followup.send(f"⚠️ Error searching YouTube: {e}")
 
-
 # ======================
 # START
 # ======================
@@ -106,7 +116,6 @@ async def baselink(interaction: discord.Interaction, screenshot: discord.Attachm
 async def on_ready():
     await bot.tree.sync()
     print(f"✅ Logged in as {bot.user}")
-
 
 if __name__ == "__main__":
     keep_alive()
