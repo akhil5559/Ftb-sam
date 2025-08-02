@@ -6,12 +6,15 @@ import aiohttp
 import os
 import re
 from googleapiclient.discovery import build
+from flask import Flask
+import threading
 
 # ======================
 # CONFIG
 # ======================
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+PORT = int(os.environ.get("PORT", 10000))
 
 intents = discord.Intents.default()
 intents.message_content = False
@@ -24,6 +27,21 @@ youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 # Regex to find base links in descriptions
 BASE_LINK_REGEX = r"https:\/\/link\.clashofclans\.com\/[^\s]+"
 
+# ======================
+# SIMPLE WEB SERVER
+# ======================
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_web():
+    app.run(host='0.0.0.0', port=PORT)
+
+def keep_alive():
+    t = threading.Thread(target=run_web)
+    t.start()
 
 # ======================
 # SLASH COMMAND
@@ -90,4 +108,6 @@ async def on_ready():
     print(f"✅ Logged in as {bot.user}")
 
 
-bot.run(DISCORD_TOKEN)
+if __name__ == "__main__":
+    keep_alive()
+    bot.run(DISCORD_TOKEN)
